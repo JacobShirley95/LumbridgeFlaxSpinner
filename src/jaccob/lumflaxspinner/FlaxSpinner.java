@@ -1,10 +1,14 @@
 package jaccob.lumflaxspinner;
 
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.util.concurrent.Callable;
 
 import org.powerbot.script.Area;
 import org.powerbot.script.Condition;
+import org.powerbot.script.PaintListener;
 import org.powerbot.script.PollingScript;
 import org.powerbot.script.Script;
 import org.powerbot.script.Tile;
@@ -18,7 +22,7 @@ import org.powerbot.script.rt4.GameObject;
 import org.powerbot.script.rt4.Widget;
 
 @Script.Manifest(name = "FlaxSpinner", description = "Spins flax in Lumbridge", properties = "client=4; topic=0;")
-public class FlaxSpinner extends PollingScript<ClientContext>{
+public class FlaxSpinner extends PollingScript<ClientContext> implements PaintListener {
 	
 	enum State {
 		WALKING_TO_WHEEL, FINDING_SPINNING_WHEEL, SPINNING, WALKING_TO_BANK, BANKING
@@ -29,10 +33,10 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 	private static final Area SPINNING_AREA = new Area(new Tile(3208, 3213), new Tile(3211, 3214));
 	private static final Tile STAIRCASE_TILE = new Tile(3205, 3208, 2);
 	
-	private static final int[] STAIRCASE_BOUNDS = {-56, 56, -8, 0, -28, 64};
+	private static final int[] STAIRCASE_BOUNDS = {-56, 32, -4, 0, 0, 72};
 	private static final int[] STAIRCASE_MIDDLE_BOUNDS = {-64, 20, -104, 0, 8, 108};
 	
-	private static final int[] SPINNER_BOUNDS = {-32, 12, -124, 0, -48, 12};
+	private static final int[] SPINNER_BOUNDS = {-16, 12, -144, -68, -60, 8};
 	
 	private static final int SPINNING_WHEEL_ID = 14889;
 	private static final int BOW_STRING_ID = 1777;
@@ -50,6 +54,7 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 	private State state = null;
 	private long spinningTimer = 0;
 	private int lastStringCount = 0;
+	private int bowStringsMade = 0;
 	
 	@Override
 	public void start() {
@@ -106,6 +111,9 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 	private boolean useSpinningWheel() {
 		GameObject spinningWheel = ctx.objects.select().id(SPINNING_WHEEL_ID).peek();
 		spinningWheel.bounds(SPINNER_BOUNDS);
+		
+		if (!spinningWheel.inViewport())
+			ctx.movement.step(SPINNING_AREA.getRandomTile());
 		
 		Condition.wait(new Callable<Boolean>() {
 			@Override
@@ -230,21 +238,18 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 					}
 				}, 500, 6)) {
 					Tile spinningAreaTile = SPINNING_AREA.getRandomTile();
-					boolean hovered = false;
 					
 					for (int tries2 = 0; tries2 < 7; tries2++) {
-						if (interactSpecial(staircase, "Climb-down")) {
-							ctx.input.move(spinningAreaTile.matrix(ctx).mapPoint());
-							hovered = true;
+						if (staircase.interact("Climb-down")) {
 							
+							ctx.input.move(spinningAreaTile.matrix(ctx).mapPoint());
 							if (Condition.wait(new Callable<Boolean>() {
 								@Override
 								public Boolean call() throws Exception {
 									return ctx.game.floor() == 1;
 								}
 							}, 300, 15)) {
-								Condition.sleep(500);
-								ctx.movement.step(SPINNING_AREA.getRandomTile());
+								Condition.sleep(100);
 								
 								return true;
 							}
@@ -257,14 +262,26 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 		return false;
 	}
 	
+	private int countFlax() {
+		return ctx.inventory.select().id(FLAX_ID).count();
+	}
+	
 	public void antiban() {
-		if (Math.random() > 0.95) {
-			ctx.camera.angle(180 + randomRange(-20, 20));
-		} else if (Math.random() > 0.95) {
-			ctx.camera.pitch(randomRange(70, 99));
-		} else if (Math.random() > 0.98) {
-			hoverSkill(13);
+		if (countFlax() > 5) {
 			ctx.game.tab(Tab.INVENTORY);
+			if (Math.random() > 0.8 && !ctx.menu.items()[0].contains("Climb")) {
+				GameObject scm = getStaircaseMiddle();
+				scm.hover();
+			}
+		} else {
+			if (Math.random() > 0.95) {
+				ctx.camera.angle(180 + randomRange(-20, 20));
+			} else if (Math.random() > 0.95) {
+				ctx.camera.pitch(randomRange(20, 99));
+			} else if (Math.random() > 0.98) {
+				hoverSkill(13);
+				ctx.game.tab(Tab.INVENTORY);
+			}
 		}
 	}
 	
@@ -320,6 +337,7 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 			break;
 		case SPINNING: 
 			if (timeToBank()) {
+				bowStringsMade += 28;
 				ctx.game.tab(Tab.INVENTORY);
 				state = State.WALKING_TO_BANK;
 			} else if (ctx.chat.canContinue()) {
@@ -358,7 +376,15 @@ public class FlaxSpinner extends PollingScript<ClientContext>{
 		ctx.bank.open();
 		ctx.bank.depositInventory();
 		ctx.bank.withdraw(FLAX_ID, 28);
+		
 		return true;
+	}
+
+	@Override
+	public void repaint(Graphics g) {
+		Graphics2D g2 = (Graphics2D)g;
+		g2.setColor(Color.GREEN);
+		g2.drawString("Bow strings made: " + bowStringsMade, 10, 50);
 	}
 	
 }
